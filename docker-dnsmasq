@@ -1,0 +1,123 @@
+#!/usr/bin/env ruby
+# Docker Event Listener / DNSMasq
+# Author: Jay Christopherson <jaychris@gmail.com>
+# License: MIT
+
+require 'fileutils'
+ 
+# Set up a proper logger
+require 'logger'
+log_file = ARGV.first || '-'
+log = Logger.new(log_file == '-' ? $stdout : log_file)
+
+althosts = '/tmp/docker.dnsmasq'
+ 
+# Create a PID file for this service
+File.open('/var/run/docker_ddns.pid', 'w+') { |f| f.write($$) }
+ 
+# Capture the terminate signal
+trap("INT") do
+  log.info "Caught INT Signal... Exiting."
+  File.unlink('/var/run/docker_ddns.pid')
+  sleep 1
+  exit
+end
+ 
+# Welcome message
+log.info "Starting Docker DNSMasq - Event Handler"
+log.info "Maintainer: Jay Christopherson <jaychris@gmail.com>"
+ 
+# Ensure docker is running
+time_waited = Time.now.to_i
+until File.exist?('/var/run/docker.pid')
+  if (Time.now.to_i - time_waited) > 600
+    log.fatal "Docker daemon still not started after 10 minutes... Please Contact Your SysAdmin!"
+    exit 1
+  end
+ 
+  log.warn "Docker daemon is not running yet..."
+  sleep 5
+end
+ 
+log.info "Docker Daemon UP! - Listening for Events..."
+ 
+# Find CGroup Mount
+File.open('/proc/mounts', 'r').each do |line|
+  dev, mnt, fstype, options, dump, fsck = line.split
+  next if "#{fstype}" != "cgroup"
+  next if "#{options}".include?('devices')
+  ENV['CGROUPMNT'] = mnt
+end.close
+ 
+# Exit if missing CGroup Mount
+unless ENV['CGROUPMNT']
+  log.fatal "Could not locate cgroup mount point."
+  exit 1
+end
+ 
+# Listen To Docker.io Events
+events = IO.popen('docker events')
+ 
+# Keep Listening for incoming data
+while line = events.gets
+ 
+  # Container Configuration
+  ENV['CONTAINER_EVENT']    = line.split.last
+  ENV['CONTAINER_CID_LONG'] = line.gsub(/^.*([0-9a-f]{64}).*$/i, '\1')
+  ENV['CONTAINER_CID']      = ENV['CONTAINER_CID_LONG'][0...12]
+ 
+  # Event Fired info
+  log.info "Event Fired (#{ENV['CONTAINER_CID']}): #{ENV['CONTAINER_EVENT']}."
+ 
+  case ENV['CONTAINER_EVENT']
+  when 'start'
+
+    # Get Container Details
+    ENV['CONTAINER_IP_ADDR']  = %x{docker inspect --format='{{.NetworkSettings.IPAddress}}' $CONTAINER_CID_LONG}.chomp
+    ENV['CONTAINER_HOSTNAME'] = %x{docker inspect --format='{{.Config.Hostname}}' $CONTAINER_CID_LONG}.chomp
+    ENV['CONTAINER_DOMAIN_NAME'] = %x{docker inspect --format='{{.Config.Domainname}}' $CONTAINER_CID_LONG}.chomp
+ 
+    puts "#{ENV['CONTAINER_IP_ADDR']} #{ENV['CONTAINER_HOSTNAME']}.#{ENV['CONTAINER_DOMAIN_NAME']}"
+ 
+    # Get Process ID of the LXC Container
+    ENV['NSPID'] = %x{head -n 1 $(find "$CGROUPMNT" -name $CONTAINER_CID_LONG | head -n 1)/tasks}.strip
+ 
+    # Ensure we have the PID
+    unless ENV['NSPID']
+      log.error "Could not find a process indentifier for container #{ENV['CONTAINER_CID']}. Cannot update DNS."
+      next
+    end
+
+    # append the entry to the dnsmasq althosts files - JC 2015-02-18
+    File.open(althosts, 'a') do |f|
+      f.puts "#{ENV['CONTAINER_IP_ADDR']} #{ENV['CONTAINER_HOSTNAME']}.#{ENV['CONTAINER_DOMAIN_NAME']} #{ENV['CONTAINER_CID']}"
+    end
+
+    # Message an success
+    if $?.success?
+      log.info "Updated DNSMasq, Added => (#{ENV['CONTAINER_CID']}): #{ENV['CONTAINER_IP_ADDR']} #{ENV['CONTAINER_HOSTNAME']}.#{ENV['CONTAINER_DOMAIN_NAME']}"
+      %x{kill -1 $(cat /var/run/dnsmasq.pid)}
+    else
+      log.error "We could not update DNSMasq record for #{ENV['CONTAINER_CID']}."
+    end
+
+  when 'stop', 'destroy'
+    tmphosts = '/tmp/.althosts'
+    # append the entry to the dnsmasq althosts files - JC 2015-02-18
+    File.open(tmphosts, "w") do |tmpfile|
+      File.foreach(althosts) do |line|
+        #puts "FOUND: #{line}" if line.grep(/#{ENV['CONTAINER_CID']}/).size > 0
+        tmpfile.puts line unless line.grep(/#{ENV['CONTAINER_CID']}/).size > 0
+      end
+    end
+    FileUtils.mv(tmphosts, althosts)
+
+    if $?.success?
+      log.info "Updated DNSMasq, Removed => (#{ENV['CONTAINER_CID']})"
+      %x{kill -1 $(cat /var/run/dnsmasq.pid)}
+    else
+      log.info "Could not update DNSMasq for #{ENV['CONTAINER_CID']}"
+    end
+  end
+end
+exit
