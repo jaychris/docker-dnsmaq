@@ -13,12 +13,12 @@ log = Logger.new(log_file == '-' ? $stdout : log_file)
 althosts = '/tmp/docker.dnsmasq'
  
 # Create a PID file for this service
-File.open('/var/run/docker_ddns.pid', 'w+') { |f| f.write($$) }
+File.open('/var/run/docker-dnsmasq.pid', 'w+') { |f| f.write($$) }
  
 # Capture the terminate signal
 trap("INT") do
   log.info "Caught INT Signal... Exiting."
-  File.unlink('/var/run/docker_ddns.pid')
+  File.unlink('/var/run/docker-dnsmasq.pid')
   sleep 1
   exit
 end
