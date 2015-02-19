@@ -1,6 +1,9 @@
 # docker-dnsmaq
 Provides an Docker event listener that dynamically updates a Dnsmasq service for container name resolution
 
+Tested OS:
+* CentOS 6
+
 ## Background
 I was looking for a way to solve a particular issue in my Docker setup - specifically, I needed containers to be able to talk to each other.
 
