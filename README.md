@@ -30,7 +30,7 @@ So, I shamelessly stole Kelly's script and modified it to do what I needed.
 
 * Install Dnsmsaq and add/update ```addn-hosts=/tmp/docker.dnsmasq``` in /etc/dnsmasq.conf
 * Start Dnsmasq
-* Put the "docker-dnsmasq" script somewhere and start it up to run in the background, perhaps like ```nohup docker-dnsmasq dd.log &```, which will log to "dd.log"
+* Put the `docker-dnsmasq` script somewhere and start it up to run in the background, perhaps like ```nohup docker-dnsmasq dd.log &```, which will log to "dd.log"
 
 At this point, you can start/stop/rm containers and you should see `/tmp/docker.dnsmasq` being modified.  You can test it like so:
 
