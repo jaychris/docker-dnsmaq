@@ -20,7 +20,7 @@ Based on all this, modifying a hosts file seemed like the perfect solution - exc
 So, I shamelessly stole Kelly's script and modified it to do what I needed.
 
 ## Overview
-`docker_dnsmasq` listens for Docker events and does two things:
+`docker-dnsmasq` listens for Docker events and does two things:
 
 * on 'start', it discovers the container hostname, domain, IP, and ID, and adds to an alternative hosts file (customizable) as a hosts file entry
 * on 'stop' or 'die', it removes the line matching the container ID from the the alternative hosts file
